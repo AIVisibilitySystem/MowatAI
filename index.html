@@ -8,14 +8,19 @@
   <h1>AI Visibility Audit</h1>
 
   <form id="form">
-    <input id="name" placeholder="Business Name" required><br><br>
-    <input id="location" placeholder="Location" required><br><br>
-    <input id="industry" placeholder="Industry" required><br><br>
+    <input id="name" placeholder="Business Name" required />
+    <br><br>
+
+    <input id="location" placeholder="Location" required />
+    <br><br>
+
+    <input id="industry" placeholder="Industry" required />
+    <br><br>
 
     <button type="submit">Run Audit</button>
   </form>
 
-  <pre id="output" style="margin-top:20px; white-space:pre-wrap;"></pre>
+  <pre id="output">Results will appear here...</pre>
 
   <script>
     document.getElementById("form").addEventListener("submit", async (e) => {
@@ -36,19 +41,26 @@
           })
         });
 
-        if (!res.ok) {
-          throw new Error("Server error: " + res.status);
-        }
-
         const data = await res.json();
+        console.log("DEBUG RESPONSE:", data);
 
-        document.getElementById("output").innerText = data.result || "No result returned";
+        // backend returns: { result: "stringified JSON" }
+        const parsed = JSON.parse(data.result);
+
+        document.getElementById("output").innerText =
+          "Score: " + parsed.score + "\n\n" +
+          "Reasons:\n- " + parsed.reasons.join("\n- ") + "\n\n" +
+          "Competitors:\n- " + parsed.competitors.join("\n- ") + "\n\n" +
+          "Improvements:\n- " + parsed.improvements.join("\n- ");
 
       } catch (err) {
+        console.error(err);
         document.getElementById("output").innerText =
-          "Error: " + err.message;
+          "Error: Failed to fetch API. Check backend is running.";
       }
     });
   </script>
+
 </body>
-</html>
+</html.>
+
