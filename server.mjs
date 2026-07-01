@@ -19,41 +19,59 @@ app.post("/audit", async (req, res) => {
   const { name, location, industry } = req.body;
 
   try {
+    // ----------------------------
+    // 1. REAL DETERMINISTIC SCORE
+    // ----------------------------
+    let score = 100;
+
+    // Basic heuristics (you can improve later)
+    if (!name || name.length < 3) score -= 20;
+    if (!location || location.length < 3) score -= 10;
+    if (!industry || industry.length < 3) score -= 10;
+
+    const lowerName = name.toLowerCase();
+
+    if (lowerName.includes("test")) score -= 20;
+    if (lowerName.includes("demo")) score -= 20;
+
+    // Clamp score
+    if (score < 0) score = 0;
+    if (score > 100) score = 100;
+
+    // ----------------------------
+    // 2. AI ONLY EXPLAINS SCORE
+    // ----------------------------
     const response = await client.responses.create({
       model: "gpt-4.1-mini",
-      input: `You are an AI visibility scoring engine.
+      input: `
+You are an AI visibility analyst.
 
-Use this strict scoring system:
-0–20 weak
-21–40 low
-41–60 average
-61–80 strong
-81–100 dominant
+A deterministic scoring system has already calculated this score:
 
+Score: ${score}/100
 Business:
 Name: ${name}
 Location: ${location}
 Industry: ${industry}
 
-Return ONLY JSON:
-{
-  "score": number,
-  "reasons": ["1", "2", "3"],
-  "competitors": ["1", "2", "3"],
-  "improvements": ["1", "2", "3"]
-}`
+Your job:
+- Explain WHY the score might be this value
+- Give 3 competitors in this space
+- Give 3 actionable improvements
+
+DO NOT change the score.
+DO NOT recalculate it.
+Only explain it clearly and professionally.
+`
     });
 
     res.json({
-      result: response.output_text
+      score,
+      report: response.output_text
     });
 
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
   }
-});
-
-app.listen(process.env.PORT || 3000, () => {
-  console.log("Server running");
 });
