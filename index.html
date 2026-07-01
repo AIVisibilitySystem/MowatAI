@@ -5,82 +5,114 @@
 
   <style>
     body {
-      font-family: Arial, sans-serif;
-      background: #0f172a;
-      color: #e2e8f0;
+      font-family: Inter, system-ui, -apple-system, sans-serif;
+      background: #0b1220;
+      color: #e5e7eb;
       margin: 0;
-      padding: 0;
     }
 
     .container {
-      max-width: 900px;
-      margin: 40px auto;
-      padding: 20px;
+      max-width: 980px;
+      margin: 50px auto;
+      padding: 24px;
     }
 
     h1 {
       text-align: center;
+      font-size: 28px;
+      font-weight: 700;
       margin-bottom: 30px;
+      color: #f8fafc;
     }
 
     form {
-      background: #1e293b;
+      background: #111827;
       padding: 20px;
-      border-radius: 12px;
-      margin-bottom: 20px;
+      border-radius: 14px;
+      border: 1px solid #1f2937;
+      display: grid;
+      gap: 12px;
     }
 
     input {
-      width: 100%;
       padding: 12px;
-      margin-bottom: 10px;
-      border-radius: 8px;
-      border: none;
+      border-radius: 10px;
+      border: 1px solid #263041;
+      background: #0b1220;
+      color: white;
+      outline: none;
+    }
+
+    input:focus {
+      border-color: #3b82f6;
     }
 
     button {
-      width: 100%;
       padding: 12px;
+      border-radius: 10px;
       border: none;
-      border-radius: 8px;
       background: #3b82f6;
       color: white;
-      font-weight: bold;
+      font-weight: 600;
       cursor: pointer;
+      transition: 0.2s;
+    }
+
+    button:hover {
+      background: #2563eb;
     }
 
     button:disabled {
-      background: #64748b;
+      opacity: 0.5;
     }
 
-    .card {
-      background: #1e293b;
-      padding: 20px;
-      border-radius: 12px;
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 16px;
       margin-top: 20px;
     }
 
+    .card {
+      background: #111827;
+      border: 1px solid #1f2937;
+      border-radius: 14px;
+      padding: 18px;
+    }
+
     .score {
-      font-size: 48px;
-      font-weight: bold;
+      font-size: 56px;
+      font-weight: 800;
       text-align: center;
       color: #38bdf8;
     }
 
     .section-title {
-      margin-top: 20px;
-      font-weight: bold;
+      margin-top: 16px;
+      font-size: 14px;
+      font-weight: 700;
       color: #93c5fd;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
     }
 
     ul {
-      padding-left: 20px;
+      padding-left: 18px;
+      color: #cbd5e1;
+    }
+
+    li {
+      margin-bottom: 6px;
     }
 
     .loading {
       text-align: center;
-      font-style: italic;
       color: #94a3b8;
+    }
+
+    #history div {
+      padding: 10px;
+      border-bottom: 1px solid #1f2937;
     }
   </style>
 </head>
@@ -96,13 +128,17 @@
       <button id="btn" type="submit">Run Audit</button>
     </form>
 
-    <div id="output" class="card">
-      Enter details and run an audit.
-    </div>
+    <div class="grid">
 
-    <div class="card">
-      <h3>History</h3>
-      <div id="history"></div>
+      <div id="output" class="card">
+        Enter details and run an audit.
+      </div>
+
+      <div class="card">
+        <div class="section-title">History</div>
+        <div id="history"></div>
+      </div>
+
     </div>
   </div>
 
@@ -176,7 +212,7 @@
 
       document.getElementById("history").innerHTML =
         history.map(h => `
-          <div style="padding:10px; border-bottom:1px solid #334155">
+          <div>
             <strong>${h.name}</strong> (${h.industry})<br/>
             Score: ${h.score}
           </div>
