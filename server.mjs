@@ -1,4 +1,3 @@
-
 import express from "express";
 import cors from "cors";
 import OpenAI from "openai";
@@ -22,14 +21,27 @@ app.post("/audit", async (req, res) => {
   try {
     const response = await client.responses.create({
       model: "gpt-4.1-mini",
-      input: `Analyse this business:
+      input: `You are an AI visibility scoring engine.
 
+Use this strict scoring system:
+0–20 weak
+21–40 low
+41–60 average
+61–80 strong
+81–100 dominant
+
+Business:
 Name: ${name}
 Location: ${location}
 Industry: ${industry}
 
-Return:
-AI Visibility Score (0-100), why, competitors, improvements.`
+Return ONLY JSON:
+{
+  "score": number,
+  "reasons": ["1", "2", "3"],
+  "competitors": ["1", "2", "3"],
+  "improvements": ["1", "2", "3"]
+}`
     });
 
     res.json({
