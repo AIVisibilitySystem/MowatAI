@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>AI Visibility Tool</title>
+</head>
+
+<body>
+  <h1>AI Visibility Audit</h1>
+
+  <form id="form">
+    <input id="name" placeholder="Business Name" required><br><br>
+    <input id="location" placeholder="Location" required><br><br>
+    <input id="industry" placeholder="Industry" required><br><br>
+
+    <button type="submit">Run Audit</button>
+  </form>
+
+  <pre id="output" style="margin-top:20px; white-space:pre-wrap;"></pre>
+
+  <script>
+    document.getElementById("form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+
+      document.getElementById("output").innerText = "Running audit...";
+
+      try {
+        const res = await fetch("https://mowatai.onrender.com/audit", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            name: document.getElementById("name").value,
+            location: document.getElementById("location").value,
+            industry: document.getElementById("industry").value
+          })
+        });
+
+        if (!res.ok) {
+          throw new Error("Server error: " + res.status);
+        }
+
+        const data = await res.json();
+
+        document.getElementById("output").innerText = data.result || "No result returned";
+
+      } catch (err) {
+        document.getElementById("output").innerText =
+          "Error: " + err.message;
+      }
+    });
+  </script>
+</body>
+</html>
