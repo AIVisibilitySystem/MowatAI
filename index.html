@@ -1,32 +1,121 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>AI Visibility Tool</title>
+  <title>AI Visibility Dashboard</title>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      margin: 0;
+      padding: 0;
+    }
+
+    .container {
+      max-width: 900px;
+      margin: 40px auto;
+      padding: 20px;
+    }
+
+    h1 {
+      text-align: center;
+      margin-bottom: 30px;
+    }
+
+    form {
+      background: #1e293b;
+      padding: 20px;
+      border-radius: 12px;
+      margin-bottom: 20px;
+    }
+
+    input {
+      width: 100%;
+      padding: 12px;
+      margin-bottom: 10px;
+      border-radius: 8px;
+      border: none;
+    }
+
+    button {
+      width: 100%;
+      padding: 12px;
+      border: none;
+      border-radius: 8px;
+      background: #3b82f6;
+      color: white;
+      font-weight: bold;
+      cursor: pointer;
+    }
+
+    button:disabled {
+      background: #64748b;
+    }
+
+    .card {
+      background: #1e293b;
+      padding: 20px;
+      border-radius: 12px;
+      margin-top: 20px;
+    }
+
+    .score {
+      font-size: 48px;
+      font-weight: bold;
+      text-align: center;
+      color: #38bdf8;
+    }
+
+    .section-title {
+      margin-top: 20px;
+      font-weight: bold;
+      color: #93c5fd;
+    }
+
+    ul {
+      padding-left: 20px;
+    }
+
+    .loading {
+      text-align: center;
+      font-style: italic;
+      color: #94a3b8;
+    }
+  </style>
 </head>
 
 <body>
-  <h1>AI Visibility Audit</h1>
+  <div class="container">
+    <h1>AI Visibility Dashboard</h1>
 
-  <form id="form">
-    <input id="name" placeholder="Business Name" required />
-    <br><br>
+    <form id="form">
+      <input id="name" placeholder="Business Name" required />
+      <input id="location" placeholder="Location" required />
+      <input id="industry" placeholder="Industry" required />
+      <button id="btn" type="submit">Run Audit</button>
+    </form>
 
-    <input id="location" placeholder="Location" required />
-    <br><br>
+    <div id="output" class="card">
+      Enter details and run an audit.
+    </div>
 
-    <input id="industry" placeholder="Industry" required />
-    <br><br>
-
-    <button type="submit">Run Audit</button>
-  </form>
-
-  <pre id="output">Results will appear here...</pre>
+    <div class="card">
+      <h3>History</h3>
+      <div id="history"></div>
+    </div>
+  </div>
 
   <script>
-    document.getElementById("form").addEventListener("submit", async (e) => {
+    const form = document.getElementById("form");
+    const output = document.getElementById("output");
+    const btn = document.getElementById("btn");
+
+    form.addEventListener("submit", async (e) => {
       e.preventDefault();
 
-      document.getElementById("output").innerText = "Running audit...";
+      btn.disabled = true;
+      output.innerHTML = `<div class="loading">Analyzing visibility...</div>`;
 
       try {
         const res = await fetch("https://mowatai.onrender.com/audit", {
@@ -42,25 +131,59 @@
         });
 
         const data = await res.json();
-        console.log("DEBUG RESPONSE:", data);
-
-        // backend returns: { result: "stringified JSON" }
         const parsed = JSON.parse(data.result);
 
-        document.getElementById("output").innerText =
-          "Score: " + parsed.score + "\n\n" +
-          "Reasons:\n- " + parsed.reasons.join("\n- ") + "\n\n" +
-          "Competitors:\n- " + parsed.competitors.join("\n- ") + "\n\n" +
-          "Improvements:\n- " + parsed.improvements.join("\n- ");
+        output.innerHTML = `
+          <div class="score">${parsed.score}</div>
+
+          <div class="section-title">Reasons</div>
+          <ul>${parsed.reasons.map(r => `<li>${r}</li>`).join("")}</ul>
+
+          <div class="section-title">Competitors</div>
+          <ul>${parsed.competitors.map(c => `<li>${c}</li>`).join("")}</ul>
+
+          <div class="section-title">Improvements</div>
+          <ul>${parsed.improvements.map(i => `<li>${i}</li>`).join("")}</ul>
+        `;
+
+        saveToHistory({
+          name: document.getElementById("name").value,
+          industry: document.getElementById("industry").value,
+          score: parsed.score
+        });
 
       } catch (err) {
         console.error(err);
-        document.getElementById("output").innerText =
-          "Error: Failed to fetch API. Check backend is running.";
+        output.innerHTML = `<div class="loading">Error loading data</div>`;
       }
+
+      btn.disabled = false;
     });
+
+    function saveToHistory(item) {
+      let history = JSON.parse(localStorage.getItem("history") || "[]");
+
+      history.unshift(item);
+      history = history.slice(0, 5);
+
+      localStorage.setItem("history", JSON.stringify(history));
+
+      renderHistory();
+    }
+
+    function renderHistory() {
+      const history = JSON.parse(localStorage.getItem("history") || "[]");
+
+      document.getElementById("history").innerHTML =
+        history.map(h => `
+          <div style="padding:10px; border-bottom:1px solid #334155">
+            <strong>${h.name}</strong> (${h.industry})<br/>
+            Score: ${h.score}
+          </div>
+        `).join("");
+    }
+
+    renderHistory();
   </script>
-
 </body>
-</html.>
-
+</html>
