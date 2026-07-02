@@ -65,7 +65,7 @@ Only explain it clearly and professionally.
 `
     });
 
-   res.json({
+  res.json({
   result: JSON.stringify({
     score,
     report: response.output_text
