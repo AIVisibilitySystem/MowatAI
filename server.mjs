@@ -12,44 +12,56 @@ const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
-/**
- * 🧠 DETERMINISTIC SCORE FUNCTION (ALWAYS SAME INPUT = SAME SCORE)
- */
+// -----------------------------
+// 🧠 STABLE SCORING (NO RANDOMNESS)
+// -----------------------------
 function generateScore(name, location, industry) {
-  let score = 70;
+  let score = 100;
 
-  if (name) score += name.length % 10;
-  if (location) score += location.length % 7;
-  if (industry) score += industry.length % 5;
+  if (!name || name.length < 3) score -= 35;
+  if (!location || location.length < 3) score -= 20;
+  if (!industry || industry.length < 3) score -= 20;
 
-  // penalties for weak inputs
-  if (!name || name.length < 3) score -= 20;
-  if (!location || location.length < 3) score -= 10;
-  if (!industry || industry.length < 3) score -= 10;
+  const n = (name || "").toLowerCase();
 
-  // keep stable range
-  score = Math.max(10, Math.min(95, score));
+  if (n.includes("test")) score -= 40;
+  if (n.includes("demo")) score -= 40;
+  if (n.includes("company")) score -= 10;
+  if (n.includes("new")) score -= 10;
+
+  const weakIndustries = ["unknown", "other", "misc"];
+  if (weakIndustries.includes((industry || "").toLowerCase())) {
+    score -= 25;
+  }
+
+  let seed = 0;
+  const str = (name + location + industry);
+  for (let i = 0; i < str.length; i++) {
+    seed += str.charCodeAt(i);
+  }
+
+  score -= seed % 25;
+
+  score = Math.max(5, Math.min(95, score));
 
   return Math.round(score);
 }
 
-/**
- * 🧠 /audit endpoint
- */
+// -----------------------------
+// 🚀 API ENDPOINT
+// -----------------------------
 app.post("/audit", async (req, res) => {
   const { name, location, industry } = req.body;
 
   try {
-    // 1. Stable deterministic score (NO RANDOMNESS)
     const score = generateScore(name, location, industry);
 
-    // 2. AI generates structured insights ONLY
     const response = await client.responses.create({
       model: "gpt-4.1-mini",
       input: `
 You are an AI visibility analyst.
 
-Return ONLY valid JSON. No markdown. No extra text.
+Return ONLY valid JSON.
 
 Business:
 Name: ${name}
@@ -57,49 +69,55 @@ Location: ${location}
 Industry: ${industry}
 Score: ${score}
 
-Return exactly this format:
+Return format:
 
 {
+  "report": "short explanation of score",
   "competitors": ["competitor 1", "competitor 2", "competitor 3"],
-  "improvements": ["improvement 1", "improvement 2", "improvement 3"],
-  "report": "short explanation of the score"
+  "improvements": ["improvement 1", "improvement 2", "improvement 3"]
 }
 
 Rules:
-- competitors must be real companies in this industry
-- improvements must be actionable
-- do not include extra text
+- ONLY JSON
+- NO markdown
+- NO extra text
 `
     });
 
-    // 3. Safe JSON parsing
     let ai;
+
     try {
       ai = JSON.parse(response.output_text);
     } catch (e) {
       ai = {
+        report: "AI parsing failed",
         competitors: ["N/A", "N/A", "N/A"],
-        improvements: ["Improve SEO", "Improve branding", "Improve marketing"],
-        report: response.output_text
+        improvements: ["Improve SEO", "Improve branding", "Improve marketing"]
       };
     }
 
-    // 4. FINAL CLEAN RESPONSE (LOVABLE READY)
+    // -----------------------------
+    // 🔌 LOVABLE SAFE RESPONSE FORMAT
+    // -----------------------------
     res.json({
-      score,
-      report: ai.report,
-      competitors: ai.competitors,
-      improvements: ai.improvements
+      result: JSON.stringify({
+        score,
+        report: ai.report,
+        competitors: ai.competitors,
+        improvements: ai.improvements
+      })
     });
 
   } catch (err) {
     console.error(err);
 
     res.json({
-      score: 0,
-      report: "Server error occurred",
-      competitors: [],
-      improvements: []
+      result: JSON.stringify({
+        score: 0,
+        report: "Server error",
+        competitors: [],
+        improvements: []
+      })
     });
   }
 });
