@@ -1,4 +1,3 @@
-
 import express from "express";
 import cors from "cors";
 import OpenAI from "openai";
@@ -14,61 +13,32 @@ const client = new OpenAI({
 });
 
 // -----------------------------
-// 🧠 STABLE SCORING (NO RANDOMNESS)
-// -----------------------------
-function generateScore(name, location, industry) {
-  let score = 100;
-
-  if (!name || name.length < 3) score -= 35;
-  if (!location || location.length < 3) score -= 20;
-  if (!industry || industry.length < 3) score -= 20;
-
-  const n = (name || "").toLowerCase();
-  if (n.includes("test")) score -= 40;
-  if (n.includes("demo")) score -= 40;
-  if (n.includes("company")) score -= 10;
-  if (n.includes("new")) score -= 10;
-
-  const weakIndustries = ["unknown", "other", "misc"];
-  if (weakIndustries.includes((industry || "").toLowerCase())) {
-    score -= 25;
-  }
-
-  let seed = 0;
-  const str = (name + location + industry);
-  for (let i = 0; i < str.length; i++) {
-    seed += str.charCodeAt(i);
-  }
-  score -= seed % 25;
-
-  score = Math.max(5, Math.min(95, score));
-  return Math.round(score);
-}
-
-// -----------------------------
 // 🚀 API ENDPOINT
 // -----------------------------
 app.post("/audit", async (req, res) => {
   const { name, location, industry } = req.body;
 
   try {
-    const score = generateScore(name, location, industry);
-
     const response = await client.responses.create({
       model: "gpt-4.1-mini",
       input: `
-You are an AI visibility analyst.
-Return ONLY valid JSON.
+You are an AI visibility analyst. You assess how visible and recognized a business is likely to be to AI systems (like ChatGPT, Perplexity, Claude) when users ask about businesses in their industry and location.
 
 Business:
 Name: ${name}
 Location: ${location}
 Industry: ${industry}
-Score: ${score}
 
-Return format:
+Score the business from 0-100 on AI visibility, considering:
+- How likely this business is to be known or cited by AI models
+- How established/recognizable the name sounds within its industry
+- Whether the business has the kind of digital footprint (reviews, press, content) that AI models typically learn from
+- Competitive strength versus likely competitors in the same industry and location
+
+Return ONLY valid JSON in this exact format:
 {
-  "report": "short explanation of score",
+  "score": <integer 0-100>,
+  "report": "short explanation of the score, 2-3 sentences",
   "competitors": ["competitor 1", "competitor 2", "competitor 3"],
   "improvements": ["improvement 1", "improvement 2", "improvement 3"]
 }
@@ -77,25 +47,37 @@ Rules:
 - ONLY JSON
 - NO markdown
 - NO extra text
+- Be realistic and vary scores meaningfully based on the business details provided — do not default to a fixed number
 `
     });
 
     let ai;
     try {
       ai = JSON.parse(response.output_text);
+
+      if (
+        typeof ai.score !== "number" ||
+        !ai.report ||
+        !Array.isArray(ai.competitors) ||
+        !Array.isArray(ai.improvements)
+      ) {
+        throw new Error("Invalid AI structure");
+      }
     } catch (e) {
+      // Fallback only if the AI response is malformed — not a real score
       ai = {
-        report: "AI parsing failed",
+        score: 0,
+        report: "AI parsing failed — could not generate a real score",
         competitors: ["N/A", "N/A", "N/A"],
-        improvements: ["Improve SEO", "Improve branding", "Improve marketing"]
+        improvements: ["Try running the audit again"]
       };
     }
 
     // -----------------------------
-    // 🔌 CLEAN RESPONSE FORMAT (no double-encoding)
+    // 🔌 CLEAN RESPONSE FORMAT
     // -----------------------------
     res.json({
-      score,
+      score: ai.score,
       report: ai.report,
       competitors: ai.competitors,
       improvements: ai.improvements
