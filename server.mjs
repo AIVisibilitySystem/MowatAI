@@ -65,10 +65,12 @@ Only explain it clearly and professionally.
 `
     });
 
-    res.json({
-      score,
-      report: response.output_text
-    });
+   res.json({
+  result: JSON.stringify({
+    score,
+    report: response.output_text
+  })
+});
 
   } catch (err) {
     console.error(err);
