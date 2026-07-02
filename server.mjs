@@ -1,3 +1,4 @@
+
 import express from "express";
 import cors from "cors";
 import OpenAI from "openai";
@@ -23,7 +24,6 @@ function generateScore(name, location, industry) {
   if (!industry || industry.length < 3) score -= 20;
 
   const n = (name || "").toLowerCase();
-
   if (n.includes("test")) score -= 40;
   if (n.includes("demo")) score -= 40;
   if (n.includes("company")) score -= 10;
@@ -39,11 +39,9 @@ function generateScore(name, location, industry) {
   for (let i = 0; i < str.length; i++) {
     seed += str.charCodeAt(i);
   }
-
   score -= seed % 25;
 
   score = Math.max(5, Math.min(95, score));
-
   return Math.round(score);
 }
 
@@ -60,7 +58,6 @@ app.post("/audit", async (req, res) => {
       model: "gpt-4.1-mini",
       input: `
 You are an AI visibility analyst.
-
 Return ONLY valid JSON.
 
 Business:
@@ -70,7 +67,6 @@ Industry: ${industry}
 Score: ${score}
 
 Return format:
-
 {
   "report": "short explanation of score",
   "competitors": ["competitor 1", "competitor 2", "competitor 3"],
@@ -85,7 +81,6 @@ Rules:
     });
 
     let ai;
-
     try {
       ai = JSON.parse(response.output_text);
     } catch (e) {
@@ -97,27 +92,23 @@ Rules:
     }
 
     // -----------------------------
-    // 🔌 LOVABLE SAFE RESPONSE FORMAT
+    // 🔌 CLEAN RESPONSE FORMAT (no double-encoding)
     // -----------------------------
     res.json({
-      result: JSON.stringify({
-        score,
-        report: ai.report,
-        competitors: ai.competitors,
-        improvements: ai.improvements
-      })
+      score,
+      report: ai.report,
+      competitors: ai.competitors,
+      improvements: ai.improvements
     });
 
   } catch (err) {
     console.error(err);
 
     res.json({
-      result: JSON.stringify({
-        score: 0,
-        report: "Server error",
-        competitors: [],
-        improvements: []
-      })
+      score: 0,
+      report: "Server error",
+      competitors: [],
+      improvements: []
     });
   }
 });
