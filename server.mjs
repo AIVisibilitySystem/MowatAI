@@ -13,48 +13,77 @@ const client = new OpenAI({
 });
 
 // -----------------------------
+// 🔍 QUERY PERPLEXITY (real-time web-aware AI)
+// -----------------------------
+async function queryPerplexity(prompt) {
+  const res = await fetch("https://api.perplexity.ai/chat/completions", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${process.env.PERPLEXITY_API_KEY}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model: "sonar",
+      messages: [{ role: "user", content: prompt }]
+    })
+  });
+
+  if (!res.ok) {
+    throw new Error(`Perplexity request failed (${res.status})`);
+  }
+
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content || "";
+}
+
+function checkMention(text, businessName) {
+  const normalizedText = text.toLowerCase();
+  const normalizedName = businessName.toLowerCase().trim();
+  return normalizedText.includes(normalizedName);
+}
+
+// -----------------------------
 // 🚀 API ENDPOINT
 // -----------------------------
 app.post("/audit", async (req, res) => {
   const { name, location, industry } = req.body;
 
   try {
-    const response = await client.responses.create({
-      model: "gpt-4.1-mini",
-      input: `
-You are an AI visibility analyst. You assess how visible and recognized a business is likely to be to AI systems (like ChatGPT, Perplexity, Claude) when users ask about businesses in their industry and location.
+    const recommendationPrompt = `What are the best ${industry} businesses in ${location}? List a few specific names.`;
+    const perplexityAnswer = await queryPerplexity(recommendationPrompt);
+    const wasMentioned = checkMention(perplexityAnswer, name);
 
-Business:
-Name: ${name}
+    const analysisPrompt = `
+You are an AI visibility analyst. You are given REAL results from querying a live, web-connected AI (Perplexity) about a business. Use these real findings to produce an honest visibility score.
+
+Business: ${name}
 Location: ${location}
 Industry: ${industry}
 
-Score the business from 0-100 on AI visibility, considering:
-- How likely this business is to be known or cited by AI models
-- How established/recognizable the name sounds within its industry
-- Whether the business has the kind of digital footprint (reviews, press, content) that AI models typically learn from
-- Competitive strength versus likely competitors in the same industry and location
+REAL FINDING - When asked "best ${industry} businesses in ${location}", the business was ${wasMentioned ? "MENTIONED" : "NOT MENTIONED"} in the AI's answer.
+Full answer received: "${perplexityAnswer}"
 
-Return ONLY valid JSON in this exact format:
+Based on this REAL finding, return ONLY valid JSON:
 {
-  "score": <integer 0-100>,
-  "report": "short explanation of the score, 2-3 sentences",
-  "competitors": ["competitor 1", "competitor 2", "competitor 3"],
-  "improvements": ["improvement 1", "improvement 2", "improvement 3"]
+  "score": <integer 0-100, weighted heavily toward whether the business was actually mentioned>,
+  "report": "2-3 sentence explanation referencing the actual finding above",
+  "competitors": ["names actually mentioned in the finding, if any — otherwise your best inference"],
+  "improvements": ["3 specific, actionable improvements based on what's missing"]
 }
 
 Rules:
-- ONLY JSON
-- NO markdown
-- NO extra text
-- Be realistic and vary scores meaningfully based on the business details provided — do not default to a fixed number
-`
+- ONLY JSON, NO markdown, NO extra text
+- Be honest — if the business wasn't mentioned, the score should reflect that clearly (low score)
+`;
+
+    const response = await client.responses.create({
+      model: "gpt-4.1-mini",
+      input: analysisPrompt
     });
 
     let ai;
     try {
       ai = JSON.parse(response.output_text);
-
       if (
         typeof ai.score !== "number" ||
         !ai.report ||
@@ -64,35 +93,34 @@ Rules:
         throw new Error("Invalid AI structure");
       }
     } catch (e) {
-      // Fallback only if the AI response is malformed — not a real score
       ai = {
-        score: 0,
-        report: "AI parsing failed — could not generate a real score",
-        competitors: ["N/A", "N/A", "N/A"],
+        score: wasMentioned ? 60 : 20,
+        report: "Analysis completed based on live AI search, but detailed report generation failed.",
+        competitors: ["N/A"],
         improvements: ["Try running the audit again"]
       };
     }
 
-    // -----------------------------
-    // 🔌 CLEAN RESPONSE FORMAT
-    // -----------------------------
     res.json({
       score: ai.score,
       report: ai.report,
       competitors: ai.competitors,
-      improvements: ai.improvements
+      improvements: ai.improvements,
+      aiRawAnswer: perplexityAnswer,
+      wasMentioned: wasMentioned
     });
 
   } catch (err) {
     console.error(err);
-
     res.json({
-  score: ai.score,
-  report: ai.report,
-  competitors: ai.competitors,
-  improvements: ai.improvements,
-  aiRawAnswer: perplexityAnswer,
-  wasMentioned: wasMentioned
+      score: 0,
+      report: "Server error — could not complete live AI visibility check",
+      competitors: [],
+      improvements: [],
+      aiRawAnswer: "",
+      wasMentioned: false
+    });
+  }
 });
 
 app.get("/", (req, res) => {
@@ -102,3 +130,4 @@ app.get("/", (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });
+
