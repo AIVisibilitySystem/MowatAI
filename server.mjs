@@ -49,31 +49,42 @@ app.post("/audit", async (req, res) => {
   const { name, location, industry } = req.body;
 
   try {
-    const recommendationPrompt = `What are the best ${industry} businesses in ${location}? List a few specific names.`;
-    const perplexityAnswer = await queryPerplexity(recommendationPrompt);
-    const wasMentioned = checkMention(perplexityAnswer, name);
+    const queries = [
+      `Best ${industry} in ${location}`,
+      `Top rated ${industry} near me in ${location}`,
+      `Who should I contact for ${industry} services in ${location}?`
+    ];
+
+    const queryResults = [];
+    for (const query of queries) {
+      const answer = await queryPerplexity(query);
+      const mentioned = checkMention(answer, name);
+      queryResults.push({ query, answer, mentioned });
+    }
+
+    const mentionCount = queryResults.filter(r => r.mentioned).length;
+    const totalQueries = queryResults.length;
 
     const analysisPrompt = `
-You are an AI visibility analyst. You are given REAL results from querying a live, web-connected AI (Perplexity) about a business. Use these real findings to produce an honest visibility score.
+You are an AI visibility analyst. A business was tested against ${totalQueries} real search queries on a live AI search platform. It was mentioned in ${mentionCount} out of ${totalQueries} queries.
 
 Business: ${name}
 Location: ${location}
 Industry: ${industry}
 
-REAL FINDING - When asked "best ${industry} businesses in ${location}", the business was ${wasMentioned ? "MENTIONED" : "NOT MENTIONED"} in the AI's answer.
-Full answer received: "${perplexityAnswer}"
+Query results:
+${queryResults.map((r, i) => `${i + 1}. "${r.query}" — ${r.mentioned ? "MENTIONED" : "NOT MENTIONED"}`).join("\n")}
 
-Based on this REAL finding, return ONLY valid JSON:
+Based on this REAL data, return ONLY valid JSON:
 {
-  "score": <integer 0-100, weighted heavily toward whether the business was actually mentioned>,
-  "report": "2-3 sentence explanation referencing the actual finding above",
-  "competitors": ["names actually mentioned in the finding, if any — otherwise your best inference"],
-  "improvements": ["3 specific, actionable improvements based on what's missing"]
+  "score": <integer 0-100, based on mention rate: ${mentionCount}/${totalQueries}>,
+  "report": "2-3 sentence explanation referencing the actual mention rate and pattern across queries",
+  "competitors": ["businesses that appeared in the answers instead, pulled from the actual query answers"],
+  "improvements": ["3 specific, actionable improvements based on the gaps found"]
 }
 
 Rules:
 - ONLY JSON, NO markdown, NO extra text
-- Be honest — if the business wasn't mentioned, the score should reflect that clearly (low score)
 `;
 
     const response = await client.responses.create({
@@ -94,8 +105,8 @@ Rules:
       }
     } catch (e) {
       ai = {
-        score: wasMentioned ? 60 : 20,
-        report: "Analysis completed based on live AI search, but detailed report generation failed.",
+        score: Math.round((mentionCount / totalQueries) * 100),
+        report: `Mentioned in ${mentionCount} of ${totalQueries} test queries.`,
         competitors: ["N/A"],
         improvements: ["Try running the audit again"]
       };
@@ -106,19 +117,21 @@ Rules:
       report: ai.report,
       competitors: ai.competitors,
       improvements: ai.improvements,
-      aiRawAnswer: perplexityAnswer,
-      wasMentioned: wasMentioned
+      queryResults: queryResults,
+      mentionCount: mentionCount,
+      totalQueries: totalQueries
     });
 
   } catch (err) {
     console.error(err);
     res.json({
       score: 0,
-      report: "Server error — could not complete live AI visibility check",
+      report: "Server error",
       competitors: [],
       improvements: [],
-      aiRawAnswer: "",
-      wasMentioned: false
+      queryResults: [],
+      mentionCount: 0,
+      totalQueries: 0
     });
   }
 });
@@ -130,4 +143,3 @@ app.get("/", (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });
-
