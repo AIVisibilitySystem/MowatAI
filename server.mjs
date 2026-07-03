@@ -87,12 +87,12 @@ Rules:
     console.error(err);
 
     res.json({
-      score: 0,
-      report: "Server error",
-      competitors: [],
-      improvements: []
-    });
-  }
+  score: ai.score,
+  report: ai.report,
+  competitors: ai.competitors,
+  improvements: ai.improvements,
+  aiRawAnswer: perplexityAnswer,
+  wasMentioned: wasMentioned
 });
 
 app.get("/", (req, res) => {
