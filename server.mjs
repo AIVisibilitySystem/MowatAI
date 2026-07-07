@@ -151,7 +151,7 @@ app.post("/contact", async (req, res) => {
       },
       body: JSON.stringify({
         from: "Contact Form <onboarding@resend.dev>",
-        to: "your-real-email@gmail.com",
+        to: "katherinemowat@findmelaw.co.uk",
         subject: `New message from ${name}`,
         text: `From: ${name} (${email})\n\nMessage:\n${message}`
       })
