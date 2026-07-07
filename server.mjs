@@ -136,6 +136,35 @@ Rules:
   }
 });
 
+// -----------------------------
+// 📧 CONTACT FORM ENDPOINT
+// -----------------------------
+app.post("/contact", async (req, res) => {
+  const { name, email, message } = req.body;
+
+  try {
+    const emailRes = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${process.env.RESEND_API_KEY}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        from: "Contact Form <onboarding@resend.dev>",
+        to: "your-real-email@gmail.com",
+        subject: `New message from ${name}`,
+        text: `From: ${name} (${email})\n\nMessage:\n${message}`
+      })
+    });
+
+    if (!emailRes.ok) throw new Error("Failed to send email");
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false });
+  }
+});
+
 app.get("/", (req, res) => {
   res.send("AI Visibility API is running");
 });
