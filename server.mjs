@@ -157,7 +157,12 @@ app.post("/contact", async (req, res) => {
       })
     });
 
-    if (!emailRes.ok) throw new Error("Failed to send email");
+    if (!emailRes.ok) {
+      const errorBody = await emailRes.text();
+      console.error("Resend API error:", emailRes.status, errorBody);
+      throw new Error("Failed to send email");
+    }
+
     res.json({ success: true });
   } catch (err) {
     console.error(err);
