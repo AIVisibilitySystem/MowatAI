@@ -12,8 +12,14 @@ const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
+function checkMention(text, businessName) {
+  const normalizedText = text.toLowerCase();
+  const normalizedName = businessName.toLowerCase().trim();
+  return normalizedText.includes(normalizedName);
+}
+
 // -----------------------------
-// 🔍 QUERY PERPLEXITY (real-time web-aware AI)
+// 🔍 PLATFORM QUERY FUNCTIONS
 // -----------------------------
 async function queryPerplexity(prompt) {
   const res = await fetch("https://api.perplexity.ai/chat/completions", {
@@ -27,19 +33,57 @@ async function queryPerplexity(prompt) {
       messages: [{ role: "user", content: prompt }]
     })
   });
-
-  if (!res.ok) {
-    throw new Error(`Perplexity request failed (${res.status})`);
-  }
-
+  if (!res.ok) throw new Error(`Perplexity request failed (${res.status})`);
   const data = await res.json();
   return data.choices?.[0]?.message?.content || "";
 }
 
-function checkMention(text, businessName) {
-  const normalizedText = text.toLowerCase();
-  const normalizedName = businessName.toLowerCase().trim();
-  return normalizedText.includes(normalizedName);
+async function queryChatGPT(prompt) {
+  const response = await client.responses.create({
+    model: "gpt-4.1-mini",
+    tools: [{ type: "web_search" }],
+    input: prompt
+  });
+  return response.output_text || "";
+}
+
+async function queryGemini(prompt) {
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent`,
+    {
+      method: "POST",
+      headers: {
+        "x-goog-api-key": process.env.GEMINI_API_KEY,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        tools: [{ google_search: {} }]
+      })
+    }
+  );
+  if (!res.ok) throw new Error(`Gemini request failed (${res.status})`);
+  const data = await res.json();
+  return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+}
+
+// -----------------------------
+// 🧠 RUN ONE PLATFORM ACROSS 3 QUERIES
+// -----------------------------
+async function runPlatform(platformName, queryFn, queries, businessName) {
+  const results = [];
+  for (const query of queries) {
+    try {
+      const answer = await queryFn(query);
+      const mentioned = checkMention(answer, businessName);
+      results.push({ query, answer, mentioned });
+    } catch (err) {
+      console.error(`${platformName} query failed:`, err.message);
+      results.push({ query, answer: "", mentioned: false, error: true });
+    }
+  }
+  const mentionCount = results.filter(r => r.mentioned).length;
+  return { platform: platformName, queries: results, mentionCount, totalQueries: results.length };
 }
 
 // -----------------------------
@@ -55,31 +99,45 @@ app.post("/audit", async (req, res) => {
       `Who should I contact for ${industry} services in ${location}?`
     ];
 
-    const queryResults = [];
-    for (const query of queries) {
-      const answer = await queryPerplexity(query);
-      const mentioned = checkMention(answer, name);
-      queryResults.push({ query, answer, mentioned });
-    }
+    const [perplexityResult, chatgptResult, geminiResult] = await Promise.all([
+      runPlatform("perplexity", queryPerplexity, queries, name),
+      runPlatform("chatgpt", queryChatGPT, queries, name),
+      runPlatform("gemini", queryGemini, queries, name)
+    ]);
 
-    const mentionCount = queryResults.filter(r => r.mentioned).length;
-    const totalQueries = queryResults.length;
+    const platforms = {
+      perplexity: perplexityResult,
+      chatgpt: chatgptResult,
+      gemini: geminiResult
+    };
+
+    const totalMentionCount = perplexityResult.mentionCount + chatgptResult.mentionCount + geminiResult.mentionCount;
+    const totalQueries = perplexityResult.totalQueries + chatgptResult.totalQueries + geminiResult.totalQueries;
 
     const analysisPrompt = `
-You are an AI visibility analyst. A business was tested against ${totalQueries} real search queries on a live AI search platform. It was mentioned in ${mentionCount} out of ${totalQueries} queries.
+You are an AI visibility analyst. A business was tested against ${queries.length} real search queries across THREE live AI platforms (Perplexity, ChatGPT with web search, Gemini with Google Search grounding).
 
 Business: ${name}
 Location: ${location}
 Industry: ${industry}
 
-Query results:
-${queryResults.map((r, i) => `${i + 1}. "${r.query}" — ${r.mentioned ? "MENTIONED" : "NOT MENTIONED"}`).join("\n")}
+Overall: mentioned in ${totalMentionCount} of ${totalQueries} total checks.
+
+Perplexity: mentioned in ${perplexityResult.mentionCount} of ${perplexityResult.totalQueries}
+ChatGPT: mentioned in ${chatgptResult.mentionCount} of ${chatgptResult.totalQueries}
+Gemini: mentioned in ${geminiResult.mentionCount} of ${geminiResult.totalQueries}
+
+Sample findings:
+${[...perplexityResult.queries, ...chatgptResult.queries, ...geminiResult.queries]
+  .slice(0, 9)
+  .map((r, i) => `${i + 1}. "${r.query}" — ${r.mentioned ? "MENTIONED" : "NOT MENTIONED"}`)
+  .join("\n")}
 
 Based on this REAL data, return ONLY valid JSON:
 {
-  "score": <integer 0-100, based on mention rate: ${mentionCount}/${totalQueries}>,
-  "report": "2-3 sentence explanation referencing the actual mention rate and pattern across queries",
-  "competitors": ["businesses that appeared in the answers instead, pulled from the actual query answers"],
+  "score": <integer 0-100, based on overall mention rate across all 3 platforms>,
+  "report": "2-3 sentence explanation referencing the actual per-platform pattern",
+  "competitors": ["businesses that appeared in the answers instead, pulled from the actual findings"],
   "improvements": ["3 specific, actionable improvements based on the gaps found"]
 }
 
@@ -105,8 +163,8 @@ Rules:
       }
     } catch (e) {
       ai = {
-        score: Math.round((mentionCount / totalQueries) * 100),
-        report: `Mentioned in ${mentionCount} of ${totalQueries} test queries.`,
+        score: Math.round((totalMentionCount / totalQueries) * 100),
+        report: `Mentioned in ${totalMentionCount} of ${totalQueries} checks across Perplexity, ChatGPT, and Gemini.`,
         competitors: ["N/A"],
         improvements: ["Try running the audit again"]
       };
@@ -117,8 +175,8 @@ Rules:
       report: ai.report,
       competitors: ai.competitors,
       improvements: ai.improvements,
-      queryResults: queryResults,
-      mentionCount: mentionCount,
+      platforms: platforms,
+      mentionCount: totalMentionCount,
       totalQueries: totalQueries
     });
 
@@ -129,7 +187,7 @@ Rules:
       report: "Server error",
       competitors: [],
       improvements: [],
-      queryResults: [],
+      platforms: {},
       mentionCount: 0,
       totalQueries: 0
     });
