@@ -47,24 +47,39 @@ async function queryChatGPT(prompt) {
   return response.output_text || "";
 }
 
-async function queryGemini(prompt) {
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent`,
-    {
-      method: "POST",
-      headers: {
-        "x-goog-api-key": process.env.GEMINI_API_KEY,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        tools: [{ google_search: {} }]
-      })
+async function queryGemini(prompt, retries = 2) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent`,
+        {
+          method: "POST",
+          headers: {
+            "x-goog-api-key": process.env.GEMINI_API_KEY,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            tools: [{ google_search: {} }]
+          })
+        }
+      );
+
+      if (res.status === 503 && attempt < retries) {
+        await new Promise(r => setTimeout(r, 2000));
+        continue;
+      }
+
+      if (!res.ok) throw new Error(`Gemini request failed (${res.status})`);
+
+      const data = await res.json();
+      const parts = data.candidates?.[0]?.content?.parts || [];
+      return parts.map(p => p.text || "").join(" ").trim();
+    } catch (err) {
+      if (attempt === retries) throw err;
     }
-  );
-  if (!res.ok) throw new Error(`Gemini request failed (${res.status})`);
-  const data = await res.json();
-  return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  }
+  return "";
 }
 
 // -----------------------------
@@ -143,6 +158,7 @@ Based on this REAL data, return ONLY valid JSON:
 
 Rules:
 - ONLY JSON, NO markdown, NO extra text
+- Write the report and improvements in natural, flowing prose, as a human consultant would write them — no bullet dashes, no markdown symbols, no pipe characters, no numbered list formatting inside the text itself
 `;
 
     const response = await client.responses.create({
