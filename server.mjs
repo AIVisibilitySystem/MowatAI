@@ -47,11 +47,11 @@ async function queryChatGPT(prompt) {
   return response.output_text || "";
 }
 
-async function queryGemini(prompt, retries = 2) {
+async function queryGemini(prompt, retries = 3) {
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`,
         {
           method: "POST",
           headers: {
@@ -66,7 +66,7 @@ async function queryGemini(prompt, retries = 2) {
       );
 
       if (res.status === 503 && attempt < retries) {
-        await new Promise(r => setTimeout(r, 2000));
+        await new Promise(r => setTimeout(r, 3000));
         continue;
       }
 
