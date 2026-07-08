@@ -47,39 +47,44 @@ async function queryChatGPT(prompt) {
   return response.output_text || "";
 }
 
-async function queryGemini(prompt, retries = 3) {
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`,
-        {
-          method: "POST",
-          headers: {
-            "x-goog-api-key": process.env.GEMINI_API_KEY,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            tools: [{ google_search: {} }]
-          })
+async function queryGemini(prompt, maxRetries = 3) {
+  const models = ["gemini-2.5-flash", "gemini-2.0-flash"];
+
+  for (const model of models) {
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+          {
+            method: "POST",
+            headers: {
+              "x-goog-api-key": process.env.GEMINI_API_KEY,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }],
+              tools: [{ google_search: {} }]
+            })
+          }
+        );
+
+        if (res.status === 503) {
+          const waitMs = Math.pow(2, attempt) * 1000 + Math.random() * 500;
+          await new Promise(r => setTimeout(r, waitMs));
+          continue;
         }
-      );
 
-      if (res.status === 503 && attempt < retries) {
-        await new Promise(r => setTimeout(r, 3000));
-        continue;
+        if (!res.ok) throw new Error(`Gemini request failed (${res.status})`);
+
+        const data = await res.json();
+        const parts = data.candidates?.[0]?.content?.parts || [];
+        return parts.map(p => p.text || "").join(" ").trim();
+      } catch (err) {
+        if (attempt === maxRetries - 1) break; // try next model
       }
-
-      if (!res.ok) throw new Error(`Gemini request failed (${res.status})`);
-
-      const data = await res.json();
-      const parts = data.candidates?.[0]?.content?.parts || [];
-      return parts.map(p => p.text || "").join(" ").trim();
-    } catch (err) {
-      if (attempt === retries) throw err;
     }
   }
-  return "";
+  throw new Error("Gemini request failed on all models after retries");
 }
 
 // -----------------------------
