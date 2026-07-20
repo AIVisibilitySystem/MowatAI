@@ -118,6 +118,51 @@ async function runPlatform(platformName, queryFn, queries, businessName) {
 }
 
 // -----------------------------
+// 🩹 JSON REPAIR STEP
+// -----------------------------
+async function repairJson(brokenText) {
+  const repairPrompt = `
+The following text was supposed to be valid JSON in this exact shape, but it isn't valid. Fix it and return ONLY the corrected valid JSON, nothing else, no markdown, no explanation.
+
+Required shape:
+{
+  "score": <integer 0-100>,
+  "report": "string",
+  "competitors": ["string", "string", "string"],
+  "improvements": ["string", "string", "string"]
+}
+
+Broken text to fix:
+"""
+${brokenText}
+"""
+`;
+  const response = await client.responses.create({
+    model: "gpt-4.1-mini",
+    input: repairPrompt
+  });
+  return JSON.parse(response.output_text);
+}
+
+// -----------------------------
+// 🧩 FALLBACK: pull likely competitor names directly from raw answers
+// -----------------------------
+function extractLikelyBusinessNames(platforms, excludeName) {
+  const allText = Object.values(platforms)
+    .flatMap(p => p.queries.map(q => q.answer))
+    .join(" ");
+
+  const matches = allText.match(/\b([A-Z][a-zA-Z]+(?:\s+&?\s?[A-Z][a-zA-Z]+){1,3})\b/g) || [];
+
+  const cleaned = [...new Set(matches)]
+    .filter(name => name.toLowerCase() !== excludeName.toLowerCase())
+    .filter(name => !["The", "This", "That", "Based On", "According To"].some(bad => name.startsWith(bad)))
+    .slice(0, 5);
+
+  return cleaned.length > 0 ? cleaned : ["No clear competitors identified in this audit"];
+}
+
+// -----------------------------
 // 🚀 API ENDPOINT
 // -----------------------------
 app.post("/audit", async (req, res) => {
@@ -130,8 +175,6 @@ app.post("/audit", async (req, res) => {
       `Who should I contact for ${industry} services in ${location}?`
     ];
 
-    // Use custom queries if the client provided valid, non-empty ones (max 5),
-    // otherwise fall back to the standard auto-generated set.
     const queries =
       Array.isArray(customQueries) &&
       customQueries.filter(q => typeof q === "string" && q.trim().length > 0).length > 0
@@ -173,6 +216,8 @@ app.post("/audit", async (req, res) => {
       });
     }
 
+    const realMentionLine = `Mentioned in ${totalMentionCount} of ${totalQueries} completed checks across Perplexity, ChatGPT, and Gemini.`;
+
     const analysisPrompt = `
 You are an AI visibility analyst. A business was tested against real search queries across up to THREE live AI platforms (Perplexity, ChatGPT with web search, Gemini with Google Search grounding). Some individual checks may have failed to run due to technical issues — those are excluded from these numbers entirely, so all figures below reflect only checks that actually completed.
 
@@ -180,30 +225,30 @@ Business: ${name}
 Location: ${location}
 Industry: ${industry}
 
-Overall: mentioned in ${totalMentionCount} of ${totalQueries} completed checks.
+${realMentionLine}
 ${totalFailedQueries > 0 ? `Note: ${totalFailedQueries} check(s) failed to run and are excluded from this data.` : ""}
 
 Perplexity: mentioned in ${perplexityResult.mentionCount} of ${perplexityResult.totalQueries} completed checks${perplexityResult.failedQueries > 0 ? ` (${perplexityResult.failedQueries} failed)` : ""}
 ChatGPT: mentioned in ${chatgptResult.mentionCount} of ${chatgptResult.totalQueries} completed checks${chatgptResult.failedQueries > 0 ? ` (${chatgptResult.failedQueries} failed)` : ""}
 Gemini: mentioned in ${geminiResult.mentionCount} of ${geminiResult.totalQueries} completed checks${geminiResult.failedQueries > 0 ? ` (${geminiResult.failedQueries} failed)` : ""}
 
-Sample findings:
+Full raw answers from every check (use this to identify real competitor names actually mentioned):
 ${[...perplexityResult.queries, ...chatgptResult.queries, ...geminiResult.queries]
   .filter(r => !r.error)
-  .slice(0, 9)
-  .map((r, i) => `${i + 1}. "${r.query}" — ${r.mentioned ? "MENTIONED" : "NOT MENTIONED"}`)
+  .map((r, i) => `${i + 1}. Query: "${r.query}"\nAnswer: ${r.answer}\n`)
   .join("\n")}
 
-Based on this REAL data, return ONLY valid JSON:
+Based on this REAL data, return ONLY valid JSON in exactly this shape:
 {
-  "score": <integer 0-100, based on the mention rate above, calculated only from completed checks>,
-  "report": "2-3 sentence explanation referencing the actual per-platform pattern",
-  "competitors": ["businesses that appeared in the answers instead, pulled from the actual findings"],
+  "score": <integer 0-100, based on the exact mention rate stated above: ${totalMentionCount} of ${totalQueries}>,
+  "report": "2-3 sentence explanation. You MUST state the mention count exactly as: ${totalMentionCount} of ${totalQueries}. Do not restate or recalculate this number differently.",
+  "competitors": ["3-5 real business names that actually appear in the raw answers above, exactly as written there"],
   "improvements": ["3 specific, actionable improvements based on the gaps found"]
 }
 
 Rules:
-- ONLY JSON, NO markdown, NO extra text
+- ONLY JSON, NO markdown, NO extra text, NO trailing commas
+- competitors MUST be real names pulled from the raw answers above, never invented, never "N/A" — if truly no other business is named anywhere in the raw answers, return an empty array []
 - Write the report and improvements in natural, flowing prose, as a human consultant would write them — no bullet dashes, no markdown symbols, no pipe characters, no numbered list formatting inside the text itself
 `;
 
@@ -213,6 +258,8 @@ Rules:
     });
 
     let ai;
+    let usedFallback = false;
+
     try {
       ai = JSON.parse(response.output_text);
       if (
@@ -224,12 +271,33 @@ Rules:
         throw new Error("Invalid AI structure");
       }
     } catch (e) {
-      ai = {
-        score: Math.round((totalMentionCount / totalQueries) * 100),
-        report: `Mentioned in ${totalMentionCount} of ${totalQueries} completed checks across Perplexity, ChatGPT, and Gemini.${totalFailedQueries > 0 ? ` ${totalFailedQueries} check(s) failed to run and were excluded.` : ""}`,
-        competitors: ["N/A"],
-        improvements: ["Try running the audit again"]
-      };
+      console.error("Initial JSON parse failed. Raw output was:", response.output_text);
+
+      try {
+        ai = await repairJson(response.output_text);
+        if (
+          typeof ai.score !== "number" ||
+          !ai.report ||
+          !Array.isArray(ai.competitors) ||
+          !Array.isArray(ai.improvements)
+        ) {
+          throw new Error("Repaired JSON still invalid");
+        }
+      } catch (repairErr) {
+        console.error("JSON repair also failed:", repairErr.message);
+
+        usedFallback = true;
+        ai = {
+          score: Math.round((totalMentionCount / totalQueries) * 100),
+          report: realMentionLine,
+          competitors: extractLikelyBusinessNames(platforms, name),
+          improvements: [
+            "Increase content that directly references your services and service area",
+            "Encourage client reviews and mentions on sites AI platforms commonly cite",
+            "Re-run this audit after making changes to confirm improvement"
+          ]
+        };
+      }
     }
 
     res.json({
@@ -242,7 +310,8 @@ Rules:
       totalQueries: totalQueries,
       failedQueries: totalFailedQueries,
       auditFailed: false,
-      usedCustomQueries
+      usedCustomQueries,
+      usedFallback
     });
 
   } catch (err) {
@@ -257,7 +326,8 @@ Rules:
       totalQueries: 0,
       failedQueries: 0,
       auditFailed: true,
-      usedCustomQueries: false
+      usedCustomQueries: false,
+      usedFallback: false
     });
   }
 });
