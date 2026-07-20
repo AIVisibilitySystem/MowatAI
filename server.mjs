@@ -88,7 +88,7 @@ async function queryGemini(prompt, maxRetries = 3) {
 }
 
 // -----------------------------
-// 🧠 RUN ONE PLATFORM ACROSS 3 QUERIES
+// 🧠 RUN ONE PLATFORM ACROSS ALL QUERIES
 // -----------------------------
 async function runPlatform(platformName, queryFn, queries, businessName) {
   const results = [];
@@ -121,14 +121,26 @@ async function runPlatform(platformName, queryFn, queries, businessName) {
 // 🚀 API ENDPOINT
 // -----------------------------
 app.post("/audit", async (req, res) => {
-  const { name, location, industry } = req.body;
+  const { name, location, industry, customQueries } = req.body;
 
   try {
-    const queries = [
+    const defaultQueries = [
       `Best ${industry} in ${location}`,
       `Top rated ${industry} near me in ${location}`,
       `Who should I contact for ${industry} services in ${location}?`
     ];
+
+    // Use custom queries if the client provided valid, non-empty ones (max 5),
+    // otherwise fall back to the standard auto-generated set.
+    const queries =
+      Array.isArray(customQueries) &&
+      customQueries.filter(q => typeof q === "string" && q.trim().length > 0).length > 0
+        ? customQueries
+            .filter(q => typeof q === "string" && q.trim().length > 0)
+            .slice(0, 5)
+        : defaultQueries;
+
+    const usedCustomQueries = queries !== defaultQueries;
 
     const [perplexityResult, chatgptResult, geminiResult] = await Promise.all([
       runPlatform("perplexity", queryPerplexity, queries, name),
@@ -156,7 +168,8 @@ app.post("/audit", async (req, res) => {
         mentionCount: 0,
         totalQueries: 0,
         failedQueries: totalFailedQueries,
-        auditFailed: true
+        auditFailed: true,
+        usedCustomQueries
       });
     }
 
@@ -228,7 +241,8 @@ Rules:
       mentionCount: totalMentionCount,
       totalQueries: totalQueries,
       failedQueries: totalFailedQueries,
-      auditFailed: false
+      auditFailed: false,
+      usedCustomQueries
     });
 
   } catch (err) {
@@ -242,7 +256,8 @@ Rules:
       mentionCount: 0,
       totalQueries: 0,
       failedQueries: 0,
-      auditFailed: true
+      auditFailed: true,
+      usedCustomQueries: false
     });
   }
 });
